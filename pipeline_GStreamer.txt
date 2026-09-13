@@ -1,0 +1,153 @@
+(sherman)intento 1:
+ gst-launch-1.0 -e videotestsrc num-buffers=300 ! video/x-raw,width=640,height=480,framerate=30/1 \
+
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+
+
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! mp4mux ! splitmuxsink location=proyecto-evidencia.mp4 max-size-time=2000000000\
+
+
+t. ! queue ! videotestsrc is-live=true pattern=ball \
+
+! video/x-raw,width=640,height=480,framerate=30/1 \
+
+! timeoverlay ! videoconvert ! video/x-raw,format=I420 \
+
+! x264enc tune=zerolatency key-int-max=15 bitrate=800 \
+
+! rtph264pay config-interval=1 pt=96
+
+
+t. ! queue ! udpsrc port=5000 \
+
+caps="application/x-rtp,media=video,clock-rate=90000,encoding-name=H264,payload=96" \
+
+! rtpjitterbuffer latency=100 ! rtph264depay ! h264parse \
+
+! avdec_h264 ! videoconvert ! autovideosink sync=false
+
+->preguntas a gemini 1:tengo entendido que primero se debe iniciar el receptor y luego el emisor, en dicha arquitectura propuesta
+el receptor correponde a la tercera rama, pero dicho receptor debería ser la aplicación en python, con esto en cuenta ¿debería 
+generar la aplicación en python primero para probar la arquitectura, según la fuente 03-appsink-analisis que corresponde a una app
+en python como la solicitada o puedo probarla asi como esta?
+como puedo generar el grafo de la arquitectura propuesta para tener un mejor entendimiento?
+¿que cambios debo hacer a la arquitectura prototipo propuesta anteriormente según la convención plugins, caps, y pads? 
+
+=>(gemini):(intento 2)
+
+gst-launch-1.0 -e videotestsrc num-buffers=300 \
+! video/x-raw,width=640,height=480,framerate=30/1 \
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! mp4mux ! splitmuxsink location=proyecto-evidencia.mp4 max-size-time=2000000000 \
+t. ! queue ! timeoverlay ! videoconvert ! x264enc tune=zerolatency key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5000 \
+t. ! queue ! videoconvert ! video/x-raw,format=GRAY8,width=160,height=120 ! autovideosink sync=false
+
+
+Aplicando la convención correcta de sumideros y filtros, el comando para probar tu arquitectura completa en la terminal (sustituyendo la cámara real por videotestsrc y 
+la aplicación Python por autovideosink) se vería así:
+
+
+error:WARNING: erroneous pipeline: could not link mp4mux0 to splitmuxsink0 
+
+>preguntas a gemini 2:según el ejemplo propuesto creo que solo tengo que eliminarlo de la linea, pero por que cree que ocurre ese error y revisando nuevamente el pipeline
+propuesto que otros errores podrían surgir y por que(tomando en cuenta el anterior): 
+
+=>(gemini):(intento 3)
+    El problema: Tienes asignado location=proyecto-evidencia.mp4. Como el objetivo es grabar video de forma segmentada, el sistema necesita generar múltiples archivos.
+    Si no le indicas un contador en el nombre, no sabrá cómo nombrar el segundo archivo y el pipeline podría colapsar.
+    (coincide con el laboratorio)
+    
+    La solución: Debes agregar un patrón de formato numérico como %02d en el parámetro location para que el sistema enumere los cortes (ej. 00, 01, 02). 
+    
+    El problema: En la segunda rama, el video entra a timeoverlay directamente desde la cola (queue). Si timeoverlay no soporta la manipulación directa sobre el formato I420 dictado por el tee,
+    provocará un error interno de datos (Internal data stream error o can't handle caps).  
+    La solución: La regla de depuración de GStreamer establece que cuando un enlace falla por manipulación de imagen, casi siempre falta un videoconvert. Es más seguro colocar videoconvert 
+    antes de timeoverlay para que GStreamer negocie automáticamente el espacio de color que el texto necesita.  
+
+gst-launch-1.0 -e videotestsrc num-buffers=300 \
+! video/x-raw,width=640,height=480,framerate=30/1 \
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! splitmuxsink location=proyecto-evidencia_%02d.mp4 max-size-time=2000000000 \
+t. ! queue ! videoconvert ! timeoverlay ! videoconvert ! x264enc tune=zerolatency key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5000 \
+t. ! queue ! videoconvert ! video/x-raw,format=GRAY8,width=160,height=120 ! autovideosink sync=false
+
+->preguntas a gemini:(intento 4)
+
+ tuve estos errores para el pipeline propuesto en las ramas 2 y 3:
+
+    WARNING: erroneous pipeline: could not link videoconvert2 to autovideosink0, videoconvert2 can't handle caps video/x-raw, format=(string)GRAY8, width=(int)160, height=(int)120
+
+de modo que elimine el videoconvert2 en ambas ramas(no sé si eso empeoro la situación)
+
+
+genere este ultimo pipeline:
+
+gst-launch-1.0 -e videotestsrc num-buffers=300 \
+
+! video/x-raw,width=640,height=480,framerate=30/1 \
+
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! splitmuxsink location=proyecto-evidencia_%02d.mp4 max-size-time=2000000000 \
+
+t. ! queue ! timeoverlay ! videoconvert ! x264enc tune=zerolatency key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5000 \
+
+t. ! queue ! video/x-raw,format=GRAY8,width=160,height=120 ! autovideosink sync=false
+
+
+que genero el siguiente error:
+
+
+WARNING: erroneous pipeline: could not link queue2 to autovideosink0, queue2 can't handle caps video/x-raw, format=(string)GRAY8, width=(int)160, height=(int)120
+
+
+que otros cambios propone al pipeline y por que? 
+
+Efectivamente, eliminar el videoconvert empeoró la situación.
+El elemento videoconvert sirve únicamente para transformar formatos de color (como de I420 a GRAY8).  Sin embargo, estabas intentando reducir la resolución original 
+de 640x480 a 160x120. Para modificar dimensiones, GStreamer exige explícitamente el uso del elemento videoscale
+
+Al eliminar por completo el videoconvert, creaste lo que el laboratorio llama un "contrato imposible".  La bifurcación (tee) está entregando video en formato I420.
+Inmediatamente después de la cola (queue), pusiste un filtro exigiendo GRAY8.Como no hay ningún elemento en el medio capaz de hacer la traducción matemática de color,
+el pipeline colapsa antes de arrancar. La regla es clara: cuando un enlace falla por formato, casi siempre falta un videoconvert o un videoscale.(sherman):videoconvert
+
+
+Aunque tu aplicación final en Python (appsink) recibirá felizmente el formato GRAY8 (un byte por píxel) para analizar la luminancia, el elemento de prueba autovideosink
+necesita dibujar eso en el monitor de tu computadora. Muchas tarjetas gráficas y gestores de ventanas no aceptan GRAY8 crudo para visualización en pantalla.
+
+(intento 5)
+gst-launch-1.0 -e videotestsrc num-buffers=300 \
+! video/x-raw,width=640,height=480,framerate=30/1 \
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! splitmuxsink location=proyecto-evidencia_%02d.mp4 max-size-time=2000000000 \
+t. ! queue ! timeoverlay ! videoconvert ! x264enc tune=zerolatency key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5000 \
+t. ! queue ! videoconvert ! videoscale ! video/x-raw,format=GRAY8,width=160,height=120 ! videoconvert ! autovideosink sync=false
+
+
+codigo funcional en iteración 5, iteracion 6 genera el grafo:
+(borrando las evidencias perdi notas sobre los datos, siguiendo adelante con los archivos recuperados):
+
+GST_DEBUG_DUMP_DOT_DIR=dots gst-launch-1.0 -e videotestsrc num-buffers=300 \
+! video/x-raw,width=640,height=480,framerate=30/1 \
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! splitmuxsink location=proyecto-evidencia_%02d.mp4 max-size-time=2000000000 \
+t. ! queue ! timeoverlay ! videoconvert ! x264enc tune=zerolatency key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5000 \
+t. ! queue ! videoconvert ! videoscale ! video/x-raw,format=GRAY8,width=160,height=120 ! videoconvert ! autovideosink sync=false
+
+promt a gemini: corri GST_DEBUG_DUMP_DOT_DIR=dots gst-launch-1.0 -e videotestsrc num-buffers=300 \
+! video/x-raw,width=640,height=480,framerate=30/1 \
+! videoconvert ! video/x-raw,format=I420 ! tee name=t \
+t. ! queue ! x264enc tune=zerolatency key-int-max=30 ! h264parse ! splitmuxsink location=proyecto-evidencia_%02d.mp4 max-size-time=2000000000 \
+t. ! queue ! timeoverlay ! videoconvert ! x264enc tune=zerolatency key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5000 \
+t. ! queue ! videoconvert ! videoscale ! video/x-raw,format=GRAY8,width=160,height=120 ! videoconvert ! autovideosink sync=false
+pero no genera el png del grafo en la carpeta dots.
+
+=> convertir a png:
+dot -Tpng dots/*PLAYING.dot -o grafo_arquitectura.png
+
+#nota, creo que la carpeta tiene que llevar el nombre "dots"
+
+Arquitectura GStreamer aparentemente funcional, documentada, evidenciada y grafo generado para pruebas posteriores
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
