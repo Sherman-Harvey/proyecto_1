@@ -1,0 +1,28 @@
+#!/bin/sh
+# Lanza el emisor y lo reinicia si termina (camara aun no lista, red caida, etc.).
+LOG=/var/log/app-camara.log
+IFACE=${APP_IFACE:-eth0}
+cd /home/root || exit 1
+
+HIJO=""
+trap 'kill $HIJO 2>/dev/null; exit 0' TERM INT
+
+while true; do
+    # Esperar (hasta ~2 min) a que la interfaz tenga IP y aparezca la camara
+    i=0
+    while [ "$i" -lt 60 ]; do
+        if ip -4 addr show "$IFACE" 2>/dev/null | grep -q "inet " && [ -e /dev/video0 ]; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 2
+    done
+
+    echo "[app-camara-run] $(date): arrancando emisor (receptor=${IP_RECEPTOR:-auto})" >> "$LOG"
+    python3 -u /usr/bin/app-camara/raspberry-emisor.py >> "$LOG" 2>&1 &
+    HIJO=$!
+    wait "$HIJO"
+    echo "[app-camara-run] el emisor termino (codigo $?); reintentando en 5 s" >> "$LOG"
+    sleep 5 &
+    wait $!
+done

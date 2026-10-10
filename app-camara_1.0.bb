@@ -12,7 +12,7 @@ SRC_URI = "file://gstreamer.py \
 S = "${UNPACKDIR}"
 
 # Dependencias de ejecución para que el gestor de paquetes sepa qué necesita
-RDEPENDS:${PN} += "python3 python3-core gstreamer1.0 gstreamer1.0-python"
+RDEPENDS:${PN} += "python3 python3-core gstreamer1.0 gstreamer1.0-python python3-gpiod"
 
 # Autoarranque con SysV (esta imagen no usa systemd)
 inherit update-rc.d

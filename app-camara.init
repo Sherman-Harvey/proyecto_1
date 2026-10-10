@@ -1,0 +1,51 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          app-camara
+# Required-Start:    $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Emisor de video con reconocimiento facial
+### END INIT INFO
+
+DAEMON=/usr/bin/app-camara/app-camara-run
+PIDFILE=/var/run/app-camara.pid
+IFACE=eth0
+IP_PI=192.168.50.2/24
+
+# IP del host por Ethernet (fuerza el receptor en raspberry-emisor.py)
+export IP_RECEPTOR=192.168.50.1
+
+asegurar_ip() {
+    ip link set "$IFACE" up
+    # Esperar hasta 10 s a que otro servicio configure la IP
+    for i in $(seq 1 10); do
+        ip -4 addr show "$IFACE" | grep -q 'inet ' && return 0
+        sleep 1
+    done
+    # Si sigue sin IP, asignar la estatica del enlace directo
+    echo "app-camara: $IFACE sin IP, asignando $IP_PI"
+    ip addr add "$IP_PI" dev "$IFACE"
+}
+
+case "$1" in
+  start)
+    asegurar_ip
+    echo "Iniciando app-camara"
+    start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON"
+    ;;
+  stop)
+    echo "Deteniendo app-camara"
+    start-stop-daemon -K -p "$PIDFILE"
+    rm -f "$PIDFILE"
+    ;;
+  restart)
+    "$0" stop
+    sleep 1
+    "$0" start
+    ;;
+  *)
+    echo "Uso: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+exit 0
